@@ -6,6 +6,8 @@ Welcome to the Fresh plugin development guide! This document will walk you throu
 
 Fresh plugins are written in **TypeScript** and run in a sandboxed Deno environment. This provides a safe and modern development experience with access to a powerful set of APIs for extending the editor.
 
+For the complete API reference, see **[Plugin API Reference](plugin-api.md)**.
+
 ## Getting Started: "Hello, World!"
 
 Let's start by creating a simple "Hello, World!" plugin.
@@ -23,7 +25,7 @@ Let's start by creating a simple "Hello, World!" plugin.
     };
 
     editor.registerCommand(
-      "My Plugin: Say Hello",
+      "my_plugin_say_hello",
       "Inserts a greeting from my plugin",
       "my_plugin_say_hello",
       "normal"
@@ -36,101 +38,192 @@ Let's start by creating a simple "Hello, World!" plugin.
     ```bash
     cargo run
     ```
-4.  **Open the command palette:** Press `Ctrl+P` and search for "My Plugin: Say Hello".
+4.  **Open the command palette:** Press `Ctrl+P` and search for "my_plugin_say_hello".
 5.  **Run the command:** You should see the text "Hello from my new plugin!" inserted into the buffer.
 
 ## Core Concepts
 
 ### Plugin Lifecycle
 
-Plugins are loaded automatically when Fresh starts. There is no explicit activation step. All files in the `plugins/` directory are executed in the Deno environment.
+Plugins are loaded automatically when Fresh starts. There is no explicit activation step. All `.ts` files in the `plugins/` directory are executed in the Deno environment.
 
 ### The `editor` Object
 
-The global `editor` object is the main entry point for the Fresh plugin API. It provides a set of methods for interacting with the editor, such as registering commands, manipulating buffers, and adding overlays.
-
-### Asynchronous Nature
-
-Many of the API calls are asynchronous and return `Promise`s. This ensures that your plugin doesn't block the editor's main thread. You should use `async/await` to work with these asynchronous methods.
-
-## API Reference
-
-The following API is available to TypeScript plugins via the global `editor` object.
+The global `editor` object is the main entry point for the Fresh plugin API. It provides methods for:
+- Registering commands
+- Reading and modifying buffers
+- Adding visual overlays
+- Spawning external processes
+- Subscribing to editor events
 
 ### Commands
 
-**`editor.registerCommand(name: string, description: string, action: string, context: string): void`**
+Commands are actions that can be triggered from the command palette or bound to keys. Register them with `editor.registerCommand()`:
 
-Registers a new command in the editor.
-
-*   `name`: The name of the command as it will appear in the command palette.
-*   `description`: A brief description of what the command does.
-*   `action`: The name of a global function that will be called when the command is executed.
-*   `context`: The context in which the command is available (e.g., `"normal"`).
-
-### UI
-
-**`editor.setStatus(message: string): void`**
-
-Displays a message in the status bar.
-
-**`editor.debug(message: string): void`**
-
-Makes a message to the editor's log file.
-
-### Buffers
-
-**`editor.getActiveBufferId(): number`**
-
-Returns the ID of the currently active buffer.
-
-**`editor.insertAtCursor(text: string): void`**
-
-Inserts text at the current cursor position.
-
-**`editor.addOverlay(bufferId: number, overlayId: string, start: number, end: number, r: number, g: number, b: number, underline: boolean): void`**
-
-Adds a colored overlay to a buffer. `underline` should be `false` to use a background color.
-
-**`editor.removeOverlaysByPrefix(bufferId: number, prefix: string): void`**
-
-Removes all overlays from a buffer that have an ID starting with the given prefix.
-
-**`editor.refreshLines(bufferId: number): void`**
-
-Forces a refresh of the lines in the given buffer, which will trigger the `lines_changed` hook for all visible lines.
-
-### Hooks
-
-You can register a function to be called when an editor event occurs. To do this, you define a global function and then register it with `editor.on`.
-
-**`editor.on(eventName: string, handlerName: string): void`**
-
-*   `eventName`: The name of the event to listen for.
-*   `handlerName`: The name of the global function to call.
-
-**Example:**
 ```typescript
-globalThis.onBufferClosed = function(data: { buffer_id: number }): void {
-  editor.debug(`Buffer ${data.buffer_id} was closed.`);
+globalThis.my_action = function(): void {
+  // Do something
 };
 
-editor.on("buffer_closed", "onBufferClosed");
+editor.registerCommand(
+  "my_command_name",      // Internal command name
+  "Human readable desc",   // Description for command palette
+  "my_action",            // Global function to call
+  "normal"                // Context: "normal", "insert", "prompt", etc.
+);
 ```
 
-**Available Hooks:**
+### Asynchronous Operations
 
-*   `render_start`: Fired before the screen is rendered.
-*   `lines_changed`: Fired when lines in a buffer are changed. This is a batched event for efficiency.
-*   `after-insert`: Fired after text is inserted into a buffer.
-*   `after-delete`: Fired after text is deleted from a buffer.
-*   `buffer_closed`: Fired when a buffer is closed.
+Many API calls return `Promise`s. Use `async/await` to work with them:
+
+```typescript
+globalThis.search_files = async function(): Promise<void> {
+  const result = await editor.spawnProcess("rg", ["TODO", "."]);
+  if (result.exit_code === 0) {
+    editor.setStatus(`Found matches`);
+  }
+};
+```
+
+### Event Handlers
+
+Subscribe to editor events with `editor.on()`. Handlers must be global functions:
+
+```typescript
+globalThis.onSave = function(data: { buffer_id: number, path: string }): void {
+  editor.debug(`Saved: ${data.path}`);
+};
+
+editor.on("buffer_save", "onSave");
+```
+
+**Available Events:**
+- `buffer_save` - After a buffer is saved
+- `buffer_closed` - When a buffer is closed
+- `cursor_moved` - When cursor position changes
+- `render_start` - Before screen renders
+- `lines_changed` - When visible lines change (batched)
+
+## Common Patterns
+
+### Highlighting Text
+
+Use overlays to highlight text without modifying content:
+
+```typescript
+globalThis.highlight_word = function(): void {
+  const bufferId = editor.getActiveBufferId();
+  const cursor = editor.getCursorPosition();
+
+  // Highlight 5 bytes starting at cursor with yellow background
+  editor.addOverlay(
+    bufferId,
+    "my_highlight:1",  // Unique ID (use prefix for batch removal)
+    cursor,
+    cursor + 5,
+    255, 255, 0,       // RGB color
+    false              // underline
+  );
+};
+
+// Later, remove all highlights with the prefix
+editor.removeOverlaysByPrefix(bufferId, "my_highlight:");
+```
+
+### Creating Results Panels
+
+Display search results, diagnostics, or other structured data in a virtual buffer:
+
+```typescript
+globalThis.show_results = async function(): Promise<void> {
+  // Define keybindings for the results panel
+  editor.defineMode("my-results", "special", [
+    ["Return", "my_goto_result"],
+    ["q", "close_buffer"]
+  ], true);
+
+  // Create the panel with embedded metadata
+  await editor.createVirtualBufferInSplit({
+    name: "*Results*",
+    mode: "my-results",
+    read_only: true,
+    entries: [
+      {
+        text: "src/main.rs:42: found match\n",
+        properties: { file: "src/main.rs", line: 42 }
+      },
+      {
+        text: "src/lib.rs:100: another match\n",
+        properties: { file: "src/lib.rs", line: 100 }
+      }
+    ],
+    ratio: 0.3,           // Panel takes 30% of height
+    panel_id: "my-results" // Reuse panel if it exists
+  });
+};
+
+// Handle "go to" when user presses Enter
+globalThis.my_goto_result = function(): void {
+  const bufferId = editor.getActiveBufferId();
+  const props = editor.getTextPropertiesAtCursor(bufferId);
+
+  if (props.length > 0 && props[0].file) {
+    editor.openFile(props[0].file, props[0].line, 0);
+  }
+};
+
+editor.registerCommand("my_goto_result", "Go to result", "my_goto_result", "my-results");
+```
+
+### Running External Commands
+
+Use `spawnProcess` to run shell commands:
+
+```typescript
+globalThis.run_tests = async function(): Promise<void> {
+  editor.setStatus("Running tests...");
+
+  const result = await editor.spawnProcess("cargo", ["test"], null);
+
+  if (result.exit_code === 0) {
+    editor.setStatus("Tests passed!");
+  } else {
+    editor.setStatus(`Tests failed: ${result.stderr.split('\n')[0]}`);
+  }
+};
+```
+
+### File System Operations
+
+Read and write files, check paths:
+
+```typescript
+globalThis.process_file = async function(): Promise<void> {
+  const path = editor.getBufferPath(editor.getActiveBufferId());
+
+  if (editor.fileExists(path)) {
+    const content = await editor.readFile(path);
+    const modified = content.replace(/TODO/g, "DONE");
+    await editor.writeFile(path + ".processed", modified);
+  }
+};
+```
 
 ## Example Plugins
 
-The `plugins/` directory contains several example plugins that you can use as a reference.
+The `plugins/` directory contains several example plugins:
 
-*   **`welcome.ts`:** A simple plugin that demonstrates how to register commands and show status messages.
-*   **`todo_highlighter.ts`:** A more advanced plugin that uses overlays and hooks to highlight keywords in comments. This is a great example of how to write an efficient and powerful plugin.
+- **`welcome.ts`** - Simple command registration and status messages
+- **`todo_highlighter.ts`** - Uses overlays and hooks to highlight keywords efficiently
+- **`git_grep.ts`** - Spawns external process and displays results in a virtual buffer
 
-By studying these examples, you can learn how to use the Fresh plugin API to create your own powerful and useful extensions for the editor.
+Study these examples to learn common patterns for Fresh plugin development.
+
+## Tips
+
+- **Use TypeScript types**: Reference `types/fresh.d.ts` for autocomplete and type checking
+- **Prefix overlay IDs**: Use `"myplugin:something"` format for easy batch removal
+- **Handle errors**: Wrap async operations in try/catch
+- **Be efficient**: Use batched events like `lines_changed` instead of per-keystroke handlers
+- **Test incrementally**: Use `editor.debug()` to log values during development

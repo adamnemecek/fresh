@@ -633,12 +633,237 @@ export {};
         fs::create_dir_all(types_dir)?;
     }
 
-    // Write output
-    fs::write("types/fresh.d.ts", output)?;
+    // Write TypeScript output
+    fs::write("types/fresh.d.ts", &output)?;
+
+    // Generate markdown documentation
+    let markdown = generate_markdown_docs(&ops, &structs, &categories);
+    fs::write("docs/plugin-api.md", markdown)?;
 
     println!("cargo::warning=Generated types/fresh.d.ts with {} ops and {} interfaces", ops.len(), structs.len());
 
     Ok(())
+}
+
+/// Generate markdown documentation from ops and structs
+fn generate_markdown_docs(
+    ops: &[OpInfo],
+    structs: &[StructInfo],
+    categories: &HashMap<&str, Vec<&OpInfo>>,
+) -> String {
+    let mut md = String::new();
+
+    // Header from template concept docs
+    md.push_str("# Fresh Editor Plugin API\n\n");
+    md.push_str("This document describes the TypeScript API available to Fresh editor plugins.\n\n");
+
+    // Core concepts
+    md.push_str("## Core Concepts\n\n");
+
+    md.push_str("### Buffers\n\n");
+    md.push_str("A buffer holds text content and may or may not be associated with a file. ");
+    md.push_str("Each buffer has a unique numeric ID that persists for the editor session. ");
+    md.push_str("Buffers track their content, modification state, cursor positions, and path. ");
+    md.push_str("All text operations (insert, delete, read) use byte offsets, not character indices.\n\n");
+
+    md.push_str("### Splits\n\n");
+    md.push_str("A split is a viewport pane that displays a buffer. The editor can have multiple ");
+    md.push_str("splits arranged in a tree layout. Each split shows exactly one buffer, but the ");
+    md.push_str("same buffer can be displayed in multiple splits. Use split IDs to control which ");
+    md.push_str("pane displays which buffer.\n\n");
+
+    md.push_str("### Virtual Buffers\n\n");
+    md.push_str("Special buffers created by plugins to display structured data like search results, ");
+    md.push_str("diagnostics, or git logs. Virtual buffers support text properties (metadata attached ");
+    md.push_str("to text ranges) that plugins can query when the user selects a line. Unlike normal ");
+    md.push_str("buffers, virtual buffers are typically read-only and not backed by files.\n\n");
+
+    md.push_str("### Text Properties\n\n");
+    md.push_str("Metadata attached to text ranges in virtual buffers. Each entry has text content ");
+    md.push_str("and a properties object with arbitrary key-value pairs. Use `getTextPropertiesAtCursor` ");
+    md.push_str("to retrieve properties at the cursor position (e.g., to get file/line info for \"go to\").\n\n");
+
+    md.push_str("### Overlays\n\n");
+    md.push_str("Visual decorations applied to buffer text without modifying content. Overlays can ");
+    md.push_str("change text color and add underlines. Use overlay IDs to manage them; prefix IDs ");
+    md.push_str("enable batch removal (e.g., \"lint:\" prefix for all linter highlights).\n\n");
+
+    md.push_str("### Modes\n\n");
+    md.push_str("Keybinding contexts that determine how keypresses are interpreted. Each buffer has ");
+    md.push_str("a mode (e.g., \"normal\", \"insert\", \"special\"). Custom modes can inherit from parents ");
+    md.push_str("and define buffer-local keybindings. Virtual buffers typically use custom modes.\n\n");
+
+    // Types section
+    md.push_str("## Types\n\n");
+
+    for struct_info in structs {
+        if struct_info.name == "TsRuntimeState" {
+            continue;
+        }
+
+        md.push_str(&format!("### {}\n\n", struct_info.ts_name));
+
+        if !struct_info.doc_comment.is_empty() {
+            // Extract first line as description
+            let desc = struct_info.doc_comment.lines().next().unwrap_or("");
+            md.push_str(&format!("{}\n\n", desc));
+        }
+
+        md.push_str("```typescript\n");
+        md.push_str(&format!("interface {} {{\n", struct_info.ts_name));
+        for field in &struct_info.fields {
+            let optional = if field.is_optional { "?" } else { "" };
+            md.push_str(&format!("  {}{}: {};\n", field.name, optional, field.ts_type));
+        }
+        md.push_str("}\n");
+        md.push_str("```\n\n");
+
+        // Field descriptions
+        if struct_info.fields.iter().any(|f| !f.doc_comment.is_empty()) {
+            md.push_str("| Field | Description |\n");
+            md.push_str("|-------|-------------|\n");
+            for field in &struct_info.fields {
+                let desc = if field.doc_comment.is_empty() {
+                    "-".to_string()
+                } else {
+                    field.doc_comment.lines().next().unwrap_or("-").to_string()
+                };
+                md.push_str(&format!("| `{}` | {} |\n", field.name, desc));
+            }
+            md.push_str("\n");
+        }
+    }
+
+    // API sections
+    let category_order = [
+        ("status", "Status and Logging"),
+        ("query", "Buffer Queries"),
+        ("buffer_info", "Buffer Info Queries"),
+        ("prompt", "Prompt Operations"),
+        ("mutation", "Buffer Mutations"),
+        ("async", "Async Operations"),
+        ("overlay", "Overlay Operations"),
+        ("filesystem", "File System Operations"),
+        ("environment", "Environment Operations"),
+        ("path", "Path Operations"),
+        ("event", "Event/Hook Operations"),
+        ("virtual_buffer", "Virtual Buffer Operations"),
+    ];
+
+    md.push_str("## API Reference\n\n");
+
+    for (category_key, category_name) in &category_order {
+        if let Some(cat_ops) = categories.get(*category_key) {
+            if cat_ops.is_empty() {
+                continue;
+            }
+
+            md.push_str(&format!("### {}\n\n", category_name));
+
+            for op in cat_ops {
+                md.push_str(&format!("#### `{}`\n\n", op.js_name));
+
+                // Description from doc comment
+                if !op.doc_comment.is_empty() {
+                    let lines: Vec<&str> = op.doc_comment.lines().collect();
+                    for line in &lines {
+                        let trimmed = line.trim();
+                        if trimmed.starts_with("@param") || trimmed.starts_with("@returns") || trimmed.starts_with("@example") {
+                            continue;
+                        }
+                        if !trimmed.is_empty() {
+                            md.push_str(&format!("{}\n", trimmed));
+                        }
+                    }
+                    md.push_str("\n");
+                }
+
+                // Signature
+                let params: Vec<String> = op.params.iter().map(|p| {
+                    let optional = if p.is_optional { "?" } else { "" };
+                    format!("{}{}: {}", p.name, optional, p.ts_type)
+                }).collect();
+
+                let return_type = if op.is_async {
+                    format!("Promise<{}>", op.return_type)
+                } else {
+                    op.return_type.clone()
+                };
+
+                md.push_str("```typescript\n");
+                md.push_str(&format!("{}({}): {}\n", op.js_name, params.join(", "), return_type));
+                md.push_str("```\n\n");
+
+                // Parameters table
+                if !op.params.is_empty() {
+                    md.push_str("**Parameters:**\n\n");
+                    md.push_str("| Name | Type | Description |\n");
+                    md.push_str("|------|------|-------------|\n");
+
+                    for param in &op.params {
+                        // Try to find @param description
+                        let desc = extract_param_doc(&op.doc_comment, &param.name);
+                        let optional_mark = if param.is_optional { " (optional)" } else { "" };
+                        md.push_str(&format!("| `{}` | `{}`{} | {} |\n",
+                            param.name, param.ts_type, optional_mark, desc));
+                    }
+                    md.push_str("\n");
+                }
+
+                // Example if present
+                if let Some(example) = extract_example(&op.doc_comment) {
+                    md.push_str("**Example:**\n\n");
+                    md.push_str("```typescript\n");
+                    md.push_str(&example);
+                    md.push_str("\n```\n\n");
+                }
+            }
+        }
+    }
+
+    md
+}
+
+/// Extract parameter description from doc comment
+fn extract_param_doc(doc: &str, param_name: &str) -> String {
+    for line in doc.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("@param") {
+            // Format: @param name - description
+            let rest = trimmed.strip_prefix("@param").unwrap().trim();
+            if let Some(stripped) = rest.strip_prefix(param_name) {
+                let desc = stripped.trim().strip_prefix('-').unwrap_or(stripped).trim();
+                return desc.to_string();
+            }
+        }
+    }
+    "-".to_string()
+}
+
+/// Extract example code from doc comment
+fn extract_example(doc: &str) -> Option<String> {
+    let mut in_example = false;
+    let mut example_lines = Vec::new();
+
+    for line in doc.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("@example") {
+            in_example = true;
+            continue;
+        }
+        if in_example {
+            if trimmed.starts_with('@') {
+                break;
+            }
+            example_lines.push(trimmed);
+        }
+    }
+
+    if example_lines.is_empty() {
+        None
+    } else {
+        Some(example_lines.join("\n"))
+    }
 }
 
 /// Categorize an op based on its name
