@@ -111,3 +111,37 @@ pub fn build_base_stream(
 
     stream
 }
+/// Build a view string and source mapping from a wire token list
+/// Returns (view_text, mapping vector)
+pub fn flatten_tokens(tokens: &[crate::plugin_api::ViewTokenWire]) -> (String, Vec<Option<usize>>) {
+    let mut view_text = String::new();
+    let mut mapping: Vec<Option<usize>> = Vec::new();
+
+    for token in tokens {
+        match &token.kind {
+            crate::plugin_api::ViewTokenWireKind::Text(t) => {
+                let base = token.source_offset;
+                let mut byte_idx = 0;
+                for ch in t.chars() {
+                    let ch_len = ch.len_utf8();
+                    view_text.push(ch);
+                    let source = base.map(|s| s + byte_idx);
+                    for offset in 0..ch_len {
+                        mapping.push(source.map(|s| s + offset));
+                    }
+                    byte_idx += ch_len;
+                }
+            }
+            crate::plugin_api::ViewTokenWireKind::Newline => {
+                view_text.push('\n');
+                mapping.push(token.source_offset);
+            }
+            crate::plugin_api::ViewTokenWireKind::Space => {
+                view_text.push(' ');
+                mapping.push(token.source_offset);
+            }
+        }
+    }
+
+    (view_text, mapping)
+}
