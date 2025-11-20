@@ -3373,11 +3373,11 @@ impl Editor {
             }
             PluginCommand::SubmitViewTransform {
                 buffer_id,
-                payload: _payload,
+                payload,
             } => {
-                // Placeholder: renderer-side consumption to be added
-                // For now, we only honor layout hints via SetLayoutHints
-                if !self.buffers.contains_key(&buffer_id) {
+                if let Some(state) = self.buffers.get_mut(&buffer_id) {
+                    state.view_transform = Some(payload);
+                } else {
                     tracing::warn!("SubmitViewTransform: buffer_id {} not found", buffer_id.0);
                 }
             }

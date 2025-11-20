@@ -96,6 +96,9 @@ pub struct EditorState {
 
     /// Optional column guides (e.g., for tables) supplied by layout hints
     pub compose_column_guides: Option<Vec<u16>>,
+
+    /// Optional transformed view payload for current viewport (tokens + map)
+    pub view_transform: Option<crate::plugin_api::ViewTransformPayload>,
 }
 
 impl EditorState {
@@ -130,6 +133,7 @@ impl EditorState {
             compose_width: None,
             compose_prev_line_numbers: None,
             compose_column_guides: None,
+            view_transform: None,
         }
     }
 
@@ -192,6 +196,7 @@ impl EditorState {
             compose_width: None,
             compose_prev_line_numbers: None,
             compose_column_guides: None,
+            view_transform: None,
         })
     }
 
