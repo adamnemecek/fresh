@@ -525,7 +525,7 @@ impl SplitRenderer {
         let mut source_to_view = HashMap::new();
         for (view_idx, src_opt) in view_mapping.iter().enumerate() {
             if let Some(src) = src_opt {
-                source_to_view.entry(*src).or_insert(view_idx);
+                source_to_view.insert(*src, view_idx);
             }
         }
 
