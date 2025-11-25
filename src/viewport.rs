@@ -188,6 +188,108 @@ impl Viewport {
         Some(self.top_byte)
     }
 
+    /// Ensure cursor is visible using view lines (Layout-aware)
+    ///
+    /// This method uses view lines to check visibility, correctly handling
+    /// view transforms that inject headers or other virtual content.
+    ///
+    /// # Arguments
+    /// * `view_lines` - The current display lines (from ViewLineIterator)
+    /// * `cursor` - The cursor to ensure is visible
+    /// * `gutter_width` - Width of the gutter (for cursor positioning)
+    pub fn ensure_visible_in_layout(&mut self, view_lines: &[ViewLine], cursor: &Cursor, gutter_width: usize) {
+        let viewport_height = self.visible_line_count();
+        if view_lines.is_empty() || viewport_height == 0 {
+            return;
+        }
+
+        // Find the cursor's view line position
+        let cursor_view_line = self.find_view_line_for_byte(view_lines, cursor.position);
+
+        // Find the current top view line
+        let top_view_line = self.find_view_line_for_byte(view_lines, self.top_byte);
+
+        // Calculate effective scroll offset (keep cursor away from edges)
+        let effective_offset = self.scroll_offset.min(viewport_height / 2);
+
+        // Check if cursor is within visible range (with scroll offset)
+        let visible_start = top_view_line + effective_offset;
+        let visible_end = top_view_line + viewport_height.saturating_sub(effective_offset);
+
+        let cursor_is_visible = cursor_view_line >= visible_start && cursor_view_line < visible_end;
+
+        if !cursor_is_visible {
+            // Cursor is not visible - scroll to center it
+            let target_top = cursor_view_line.saturating_sub(viewport_height / 2);
+
+            // Apply scroll limit
+            let max_top = view_lines.len().saturating_sub(viewport_height);
+            let clamped_top = target_top.min(max_top);
+
+            // Get the source byte for the new top view line
+            if let Some(new_top_byte) = self.get_source_byte_for_view_line(view_lines, clamped_top) {
+                tracing::trace!(
+                    "ensure_visible_in_layout: cursor_view_line={}, top_view_line={}, clamped_top={}, new_top_byte={}",
+                    cursor_view_line, top_view_line, clamped_top, new_top_byte
+                );
+                self.top_byte = new_top_byte;
+            }
+        }
+
+        // Handle horizontal scrolling for cursor column
+        // Find the cursor's column within its view line
+        if cursor_view_line < view_lines.len() {
+            let line = &view_lines[cursor_view_line];
+            // Find which column the cursor is at
+            let cursor_col = line.char_mappings
+                .iter()
+                .position(|m| *m == Some(cursor.position))
+                .unwrap_or(0);
+
+            // Get line length for scroll limits
+            let line_length = line.text.trim_end_matches('\n').chars().count();
+
+            self.ensure_column_visible_simple(cursor_col, line_length, gutter_width);
+        }
+    }
+
+    /// Simple column visibility check (doesn't need buffer)
+    fn ensure_column_visible_simple(&mut self, column: usize, line_length: usize, gutter_width: usize) {
+        // Skip if line wrapping is enabled (all columns visible via wrapping)
+        if self.line_wrap_enabled {
+            self.left_column = 0;
+            return;
+        }
+
+        let scrollbar_width = 1;
+        let visible_width = (self.width as usize)
+            .saturating_sub(gutter_width)
+            .saturating_sub(scrollbar_width);
+
+        if visible_width == 0 {
+            return;
+        }
+
+        let effective_offset = self.horizontal_scroll_offset.min(visible_width / 2);
+        let ideal_left = self.left_column + effective_offset;
+        let ideal_right = self.left_column + visible_width.saturating_sub(effective_offset);
+
+        if column < ideal_left {
+            self.left_column = column.saturating_sub(effective_offset);
+        } else if column >= ideal_right {
+            let target_position = visible_width.saturating_sub(effective_offset).saturating_sub(1);
+            self.left_column = column.saturating_sub(target_position);
+        }
+
+        // Limit scroll to line length
+        if line_length > 0 {
+            let max_left_column = line_length.saturating_sub(visible_width.saturating_sub(1));
+            if self.left_column > max_left_column {
+                self.left_column = max_left_column;
+            }
+        }
+    }
+
     /// Set top_byte with automatic scroll limit enforcement
     /// This prevents scrolling past the end of the buffer by ensuring
     /// the viewport can be filled from the proposed position

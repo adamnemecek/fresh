@@ -1798,6 +1798,11 @@ impl SplitRenderer {
             render_area.width as usize,
             gutter_width,
         );
+
+        // Ensure cursor is visible using Layout-aware check (handles virtual lines)
+        let primary = *state.cursors.primary();
+        state.viewport.ensure_visible_in_layout(&view_data.lines, &primary, gutter_width);
+
         let view_anchor = Self::calculate_view_anchor(&view_data.lines, state.viewport.top_byte);
         Self::render_compose_margins(frame, area, &compose_layout, &view_mode, theme);
 
