@@ -115,12 +115,14 @@ impl TabsRenderer {
 
         let mut all_tab_spans: Vec<(Span, usize)> = Vec::new(); // Store (Span, display_width)
         let mut tab_ranges: Vec<(usize, usize)> = Vec::new(); // (start, end) positions for each tab (content only)
+        let mut rendered_buffer_ids: Vec<BufferId> = Vec::new(); // Track which buffers actually got rendered
 
         // First, build all spans and calculate their display widths
         for (idx, id) in split_buffers.iter().enumerate() {
             let Some(state) = buffers.get(id) else {
                 continue;
             };
+            rendered_buffer_ids.push(*id);
 
             let name = state
                 .buffer
@@ -179,7 +181,11 @@ impl TabsRenderer {
         let max_width = area.width as usize;
 
         let total_width: usize = all_tab_spans.iter().map(|(_, w)| w).sum();
-        let active_tab_idx = split_buffers.iter().position(|id| *id == active_buffer);
+        // Use rendered_buffer_ids (not split_buffers) to find active index,
+        // since some buffers may have been skipped if not in buffers HashMap
+        let active_tab_idx = rendered_buffer_ids
+            .iter()
+            .position(|id| *id == active_buffer);
 
         let mut tab_widths: Vec<usize> = Vec::new();
         for (start, end) in &tab_ranges {

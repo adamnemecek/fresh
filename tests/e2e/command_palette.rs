@@ -816,3 +816,55 @@ fn test_show_keyboard_shortcuts_command() {
         screen
     );
 }
+
+/// Test that keyboard shortcuts can be opened, closed, and reopened without crashing
+/// This reproduces a bug where opening keyboard shortcuts the second time causes:
+/// "index out of bounds: the len is 1 but the index is 1" panic in tabs.rs:207
+#[test]
+fn test_show_keyboard_shortcuts_open_close_reopen() {
+    use crossterm::event::{KeyCode, KeyModifiers};
+    let mut harness = EditorTestHarness::new(100, 30).unwrap();
+
+    // First open: Trigger the command palette and run "Show Keyboard Shortcuts"
+    harness
+        .send_key(KeyCode::Char('p'), KeyModifiers::CONTROL)
+        .unwrap();
+    harness.type_text("keyboard").unwrap();
+    harness.send_key(KeyCode::Enter, KeyModifiers::NONE).unwrap();
+    harness.render().unwrap();
+
+    // Verify keyboard shortcuts are shown
+    let screen = harness.screen_to_string();
+    println!("First open - Screen:\n{}", screen);
+    assert!(
+        screen.contains("Ctrl+") || screen.contains("Keyboard Shortcuts"),
+        "Keyboard shortcuts should be visible on first open. Screen:\n{}",
+        screen
+    );
+
+    // Close with 'q' (standard way to close help/read-only buffers)
+    harness.send_key(KeyCode::Char('q'), KeyModifiers::NONE).unwrap();
+    harness.render().unwrap();
+
+    let screen_after_close = harness.screen_to_string();
+    println!("After close - Screen:\n{}", screen_after_close);
+
+    // Second open: This should NOT panic with "index out of bounds"
+    // BUG: Currently this causes panic at src/view/ui/tabs.rs:207:42
+    // "index out of bounds: the len is 1 but the index is 1"
+    harness
+        .send_key(KeyCode::Char('p'), KeyModifiers::CONTROL)
+        .unwrap();
+    harness.type_text("keyboard").unwrap();
+    harness.send_key(KeyCode::Enter, KeyModifiers::NONE).unwrap();
+    harness.render().unwrap();
+
+    // Verify keyboard shortcuts are shown again
+    let screen = harness.screen_to_string();
+    println!("Second open - Screen:\n{}", screen);
+    assert!(
+        screen.contains("Ctrl+") || screen.contains("Keyboard Shortcuts"),
+        "Keyboard shortcuts should be visible on second open. Screen:\n{}",
+        screen
+    );
+}

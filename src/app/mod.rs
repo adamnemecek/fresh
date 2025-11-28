@@ -1219,53 +1219,23 @@ impl Editor {
 
     /// Close the given buffer
     pub fn close_buffer(&mut self, id: BufferId) -> io::Result<()> {
-        // Can't close if it's the only buffer
-        if self.buffers.len() == 1 {
-            return Err(io::Error::other("Cannot close last buffer"));
-        }
-
         // Check for unsaved changes
         if let Some(state) = self.buffers.get(&id) {
             if state.buffer.is_modified() {
                 return Err(io::Error::other("Buffer has unsaved changes"));
             }
         }
-
-        // Find a replacement buffer (any buffer that's not the one being closed)
-        let replacement_buffer = *self.buffers.keys().find(|&&bid| bid != id).unwrap();
-
-        // Update all splits that are showing this buffer to show the replacement
-        let splits_to_update = self.split_manager.splits_for_buffer(id);
-        for split_id in splits_to_update {
-            let _ = self
-                .split_manager
-                .set_split_buffer(split_id, replacement_buffer);
-        }
-
-        self.buffers.remove(&id);
-        self.event_logs.remove(&id);
-        self.seen_byte_ranges.remove(&id);
-
-        // Remove buffer from panel_ids mapping if it was a panel buffer
-        // This prevents stale entries when the same panel_id is reused later
-        self.panel_ids.retain(|_, &mut buf_id| buf_id != id);
-
-        // Remove buffer from all splits' open_buffers lists
-        for view_state in self.split_view_states.values_mut() {
-            view_state.remove_buffer(id);
-        }
-
-        // Switch to another buffer if we closed the active one
-        if self.active_buffer == id {
-            self.set_active_buffer(replacement_buffer);
-        }
-
-        Ok(())
+        self.close_buffer_internal(id)
     }
 
     /// Force close the given buffer without checking for unsaved changes
     /// Use this when the user has already confirmed they want to discard changes
     pub fn force_close_buffer(&mut self, id: BufferId) -> io::Result<()> {
+        self.close_buffer_internal(id)
+    }
+
+    /// Internal helper to close a buffer (shared by close_buffer and force_close_buffer)
+    fn close_buffer_internal(&mut self, id: BufferId) -> io::Result<()> {
         // Can't close if it's the only buffer
         if self.buffers.len() == 1 {
             return Err(io::Error::other("Cannot close last buffer"));
@@ -1285,8 +1255,10 @@ impl Editor {
         self.buffers.remove(&id);
         self.event_logs.remove(&id);
         self.seen_byte_ranges.remove(&id);
+        self.buffer_metadata.remove(&id);
 
         // Remove buffer from panel_ids mapping if it was a panel buffer
+        // This prevents stale entries when the same panel_id is reused later
         self.panel_ids.retain(|_, &mut buf_id| buf_id != id);
 
         // Remove buffer from all splits' open_buffers lists
@@ -3339,7 +3311,10 @@ impl Editor {
                 self.update_search_highlights(&input);
             }
             PromptType::OpenFile | PromptType::SaveFileAs => {
-                // Fire plugin hook for file path completion
+                // Fire plugin hook for file path completion.
+                // The hook is processed asynchronously by the plugin thread.
+                // Commands (SetPromptSuggestions) will be picked up by the main loop's
+                // process_async_messages() -> process_plugin_commands() on the next frame.
                 use crate::services::plugins::hooks::HookArgs;
                 let prompt_type_str = match prompt_type {
                     PromptType::OpenFile => "open-file",
@@ -3351,32 +3326,8 @@ impl Editor {
                     input,
                 };
 
-                // Check if we need initial suggestions (prompt just opened with no suggestions)
-                let needs_initial_suggestions = self
-                    .prompt
-                    .as_ref()
-                    .is_some_and(|p| p.suggestions.is_empty());
-
-                if let Some(ref mut ts_manager) = self.ts_plugin_manager {
+                if let Some(ref ts_manager) = self.ts_plugin_manager {
                     ts_manager.run_hook("prompt_changed", hook_args);
-
-                    // Poll briefly for plugin commands to ensure suggestions are available
-                    // Only do this when the prompt has no suggestions yet (initial open)
-                    // This fixes issue #193 where completions weren't shown immediately
-                    if needs_initial_suggestions {
-                        for _ in 0..10 {
-                            std::thread::sleep(std::time::Duration::from_millis(5));
-                            let commands = ts_manager.process_commands();
-                            if !commands.is_empty() {
-                                for command in commands {
-                                    if let Err(e) = self.handle_plugin_command(command) {
-                                        tracing::error!("Error handling plugin command: {}", e);
-                                    }
-                                }
-                                break;
-                            }
-                        }
-                    }
                 }
             }
             PromptType::Plugin { custom_type } => {

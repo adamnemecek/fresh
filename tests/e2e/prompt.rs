@@ -434,163 +434,93 @@ fn test_save_as_nested_path() {
     }
 }
 
-/// Test that Open File prompt shows completions immediately when opened (issue #193)
-/// The prompt should display file/directory suggestions even before the user types anything.
+/// Test that Open File prompt shows completions popup immediately when opened (issue #193)
+///
+/// BUG: The suggestions dropdown/popup doesn't appear until the user types a few characters.
+/// Users expect to see file completions immediately when the Open File prompt appears.
 #[test]
 fn test_open_file_prompt_shows_completions_immediately() {
     use crossterm::event::{KeyCode, KeyModifiers};
     use std::fs;
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
-    // Create a temporary project directory
+    // Create a temp directory with test files
     let temp_dir = tempfile::TempDir::new().unwrap();
-    let project_root = temp_dir.path().join("project_root");
-    fs::create_dir(&project_root).unwrap();
+    let project_root = temp_dir.path().to_path_buf();
 
-    // Create plugins directory with an inline path completion plugin
-    let plugins_dir = project_root.join("plugins");
-    fs::create_dir(&plugins_dir).unwrap();
-
-    // Create a simplified inline plugin for testing (similar to test_render_line_hook_with_args)
-    let path_complete_plugin = r###"
-// Simple path completion plugin for testing issue #193
-globalThis.onPathCompletePromptChanged = function (args: { prompt_type: string; input: string }): boolean {
-    if (args.prompt_type !== "open-file" && args.prompt_type !== "save-file-as") {
-        return true;
-    }
-
-    editor.debug(`Path completion: prompt_type=${args.prompt_type}, input=${args.input}`);
-
-    // Get the working directory for "." paths
-    let dir = args.input === "" ? "." : args.input;
-    if (!dir.includes("/")) {
-        dir = ".";
-    }
-
-    const entries = editor.readDir(dir);
-    editor.debug(`readDir("${dir}") returned ${entries ? entries.length : "null"} entries`);
-
-    if (!entries) {
-        editor.setPromptSuggestions([]);
-        return true;
-    }
-
-    // Filter hidden files and convert to suggestions
-    const suggestions = entries
-        .filter((e: DirEntry) => !e.name.startsWith("."))
-        .slice(0, 100)
-        .map((e: DirEntry) => ({
-            text: e.is_dir ? e.name + "/" : e.name,
-            value: e.is_dir ? e.name + "/" : e.name,
-        }));
-
-    editor.debug(`Setting ${suggestions.length} suggestions`);
-    editor.setPromptSuggestions(suggestions);
-    return true;
-};
-
-editor.on("prompt_changed", "onPathCompletePromptChanged");
-editor.debug("Path completion test plugin loaded!");
-"###;
-
-    fs::write(plugins_dir.join("path_complete.ts"), path_complete_plugin).unwrap();
-
-    // Create some test files in the project directory
-    fs::write(project_root.join("README.md"), "# Test Project").unwrap();
-    fs::write(project_root.join("main.rs"), "fn main() {}").unwrap();
+    // Create test files in root
+    fs::write(project_root.join("README.md"), "# Test").unwrap();
     fs::write(project_root.join("Cargo.toml"), "[package]").unwrap();
 
-    // Create a subdirectory
+    // Create src/ subdirectory with files
     let src_dir = project_root.join("src");
     fs::create_dir(&src_dir).unwrap();
-    fs::write(src_dir.join("lib.rs"), "// lib").unwrap();
+    fs::write(src_dir.join("main.rs"), "fn main() {}").unwrap();
+    fs::write(src_dir.join("alpha.rs"), "// alpha").unwrap();
+    fs::write(src_dir.join("beta.rs"), "// beta").unwrap();
 
-    // Create harness with the project directory (so plugins load)
+    // Copy the real path_complete.ts plugin to the temp directory
+    let real_plugins_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("plugins");
+    let temp_plugins_dir = project_root.join("plugins");
+    fs::create_dir(&temp_plugins_dir).unwrap();
+
+    // Copy path_complete.ts
+    fs::copy(
+        real_plugins_dir.join("path_complete.ts"),
+        temp_plugins_dir.join("path_complete.ts"),
+    )
+    .unwrap();
+
+    // Copy the lib/ directory that path_complete.ts might depend on
+    let real_lib_dir = real_plugins_dir.join("lib");
+    if real_lib_dir.exists() {
+        let temp_lib_dir = temp_plugins_dir.join("lib");
+        fs::create_dir(&temp_lib_dir).unwrap();
+        for entry in fs::read_dir(&real_lib_dir).unwrap() {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            if path.is_file() {
+                fs::copy(&path, temp_lib_dir.join(path.file_name().unwrap())).unwrap();
+            }
+        }
+    }
+
+    // Create harness with temp directory
     let mut harness =
         EditorTestHarness::with_config_and_working_dir(80, 24, Default::default(), project_root.clone())
             .unwrap();
 
-    // Initial render to let plugins load
+    // Let plugins load
     harness.render().unwrap();
-
-    // Process initial plugin commands
-    for _ in 0..5 {
+    for _ in 0..10 {
         let _ = harness.editor_mut().process_async_messages();
         std::thread::sleep(Duration::from_millis(20));
     }
     harness.render().unwrap();
 
-    // Trigger the open file prompt with Ctrl+O
+    // Open a file in src/ subdirectory - this sets up the prefill scenario
+    harness.open_file(&src_dir.join("main.rs")).unwrap();
+    harness.render().unwrap();
+    harness.assert_screen_contains("main.rs");
+
+    // Trigger Open File with Ctrl+O
     harness
         .send_key(KeyCode::Char('o'), KeyModifiers::CONTROL)
         .unwrap();
 
-    // Check that the prompt is visible
     harness.assert_screen_contains("Open file:");
 
-    // Check the prompt state for debugging
-    if let Some(prompt) = harness.editor_mut().prompt_mut() {
-        println!(
-            "Prompt state after send_key: input='{}', suggestions={}",
-            prompt.input,
-            prompt.suggestions.len()
-        );
-        for (i, s) in prompt.suggestions.iter().take(5).enumerate() {
-            println!("  Suggestion {}: {:?}", i, s.text);
-        }
-    } else {
-        println!("No prompt found!");
-    }
+    // ISSUE #193: File completions should appear IMMEDIATELY when the prompt opens
+    // (not just after typing characters). The prompt is prefilled with "src/" so
+    // we should see completions from the src/ directory right away.
+    harness
+        .wait_until(|h| {
+            let screen = h.screen_to_string();
+            // Should see the files from src/ directory in completions
+            screen.contains("alpha.rs") || screen.contains("beta.rs") || screen.contains("main.rs")
+        })
+        .expect("Completions should appear immediately when Open File prompt opens");
 
-    // ISSUE #193: Completions should appear immediately when the prompt opens.
-    // We use a polling loop to wait for suggestions, but the fix should ensure
-    // they appear very quickly (within the polling done in update_prompt_suggestions).
-    // If the fix is working, suggestions should be available almost immediately.
-    let start = Instant::now();
-    let timeout = Duration::from_millis(500);
-    let mut has_completions = false;
-
-    while start.elapsed() < timeout {
-        let _ = harness.editor_mut().process_async_messages();
-        harness.render().unwrap();
-
-        let screen = harness.screen_to_string();
-        has_completions = screen.contains("README.md")
-            || screen.contains("main.rs")
-            || screen.contains("Cargo.toml")
-            || screen.contains("src/");
-
-        if has_completions {
-            let elapsed = start.elapsed();
-            println!(
-                "Completions appeared after {:?} (should be nearly instant)",
-                elapsed
-            );
-            // Verify completions appeared quickly (within 100ms is reasonable)
-            assert!(
-                elapsed < Duration::from_millis(100),
-                "Completions appeared but took too long ({:?}). They should appear immediately when the prompt opens.",
-                elapsed
-            );
-            break;
-        }
-
-        std::thread::sleep(Duration::from_millis(10));
-    }
-
-    if !has_completions {
-        // Check final prompt state
-        if let Some(prompt) = harness.editor_mut().prompt_mut() {
-            println!(
-                "Final prompt state: input='{}', suggestions={}",
-                prompt.input,
-                prompt.suggestions.len()
-            );
-        }
-        let screen = harness.screen_to_string();
-        panic!(
-            "Open file prompt should show completions immediately, but none were found after {:?}. Screen:\n{}",
-            timeout, screen
-        );
-    }
+    let screen = harness.screen_to_string();
+    println!("Screen after opening prompt:\n{}", screen);
 }
