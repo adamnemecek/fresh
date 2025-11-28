@@ -189,14 +189,6 @@
       "when": "normal"
     },
     {
-      "comment": "Set mark to start selection",
-      "key": " ",
-      "modifiers": ["ctrl"],
-      "action": "set_mark",
-      "args": {},
-      "when": "normal"
-    },
-    {
       "comment": "Normal context - Document navigation",
       "key": "Home",
       "modifiers": ["ctrl"],
@@ -608,6 +600,13 @@
     },
     {
       "comment": "Normal context - LSP",
+      "key": " ",
+      "modifiers": ["ctrl"],
+      "action": "lsp_completion",
+      "args": {},
+      "when": "normal"
+    },
+    {
       "key": "F2",
       "modifiers": [],
       "action": "lsp_rename",

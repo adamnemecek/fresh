@@ -359,3 +359,95 @@ fn test_cursor_x_position_after_enter_at_end_of_line() {
         expected_x + 1
     );
 }
+
+/// Test: Ctrl+Up scrolls view up without moving cursor
+#[test]
+fn test_ctrl_up_scrolls_view_up() {
+    let mut harness = EditorTestHarness::new(80, 15).unwrap();
+
+    // Create a file with 50 lines (more than the 15-line viewport)
+    let mut lines = Vec::new();
+    for i in 1..=50 {
+        lines.push(format!("line {}", i));
+    }
+    let content = lines.join("\n");
+    let _fixture = harness.load_buffer_from_text(&content).unwrap();
+    harness.render().unwrap();
+
+    // Move cursor to line 20 (middle of file)
+    for _ in 0..19 {
+        harness.send_key(KeyCode::Down, KeyModifiers::NONE).unwrap();
+    }
+    harness.render().unwrap();
+
+    // Record cursor position before scroll
+    let cursor_pos_before = harness.cursor_position();
+    let (_, screen_y_before) = harness.screen_cursor_position();
+
+    // Press Ctrl+Up to scroll view up (content moves down, we see earlier lines)
+    harness
+        .send_key(KeyCode::Up, KeyModifiers::CONTROL)
+        .unwrap();
+    harness.render().unwrap();
+
+    // Cursor buffer position should NOT change
+    let cursor_pos_after = harness.cursor_position();
+    assert_eq!(
+        cursor_pos_before, cursor_pos_after,
+        "Ctrl+Up should not move cursor position in buffer"
+    );
+
+    // Screen cursor Y should move down by 1 (since view scrolled up)
+    let (_, screen_y_after) = harness.screen_cursor_position();
+    assert_eq!(
+        screen_y_after,
+        screen_y_before + 1,
+        "Ctrl+Up should scroll view up, moving screen cursor down by 1"
+    );
+}
+
+/// Test: Ctrl+Down scrolls view down without moving cursor
+#[test]
+fn test_ctrl_down_scrolls_view_down() {
+    let mut harness = EditorTestHarness::new(80, 15).unwrap();
+
+    // Create a file with 50 lines (more than the 15-line viewport)
+    let mut lines = Vec::new();
+    for i in 1..=50 {
+        lines.push(format!("line {}", i));
+    }
+    let content = lines.join("\n");
+    let _fixture = harness.load_buffer_from_text(&content).unwrap();
+    harness.render().unwrap();
+
+    // Move cursor to line 20 (middle of file)
+    for _ in 0..19 {
+        harness.send_key(KeyCode::Down, KeyModifiers::NONE).unwrap();
+    }
+    harness.render().unwrap();
+
+    // Record cursor position before scroll
+    let cursor_pos_before = harness.cursor_position();
+    let (_, screen_y_before) = harness.screen_cursor_position();
+
+    // Press Ctrl+Down to scroll view down (content moves up, we see later lines)
+    harness
+        .send_key(KeyCode::Down, KeyModifiers::CONTROL)
+        .unwrap();
+    harness.render().unwrap();
+
+    // Cursor buffer position should NOT change
+    let cursor_pos_after = harness.cursor_position();
+    assert_eq!(
+        cursor_pos_before, cursor_pos_after,
+        "Ctrl+Down should not move cursor position in buffer"
+    );
+
+    // Screen cursor Y should move up by 1 (since view scrolled down)
+    let (_, screen_y_after) = harness.screen_cursor_position();
+    assert_eq!(
+        screen_y_after,
+        screen_y_before - 1,
+        "Ctrl+Down should scroll view down, moving screen cursor up by 1"
+    );
+}

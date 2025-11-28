@@ -1780,4 +1780,40 @@ mod tests {
                                                            // Ctrl+Shift+S is not bound by default, should return None
         assert_eq!(action_ctrl_shift, Action::None);
     }
+
+    #[test]
+    fn test_scroll_keybindings() {
+        let config = Config::default();
+        let resolver = KeybindingResolver::new(&config);
+
+        // Test Ctrl+Up -> ScrollUp
+        let ctrl_up = KeyEvent::new(KeyCode::Up, KeyModifiers::CONTROL);
+        assert_eq!(
+            resolver.resolve(&ctrl_up, KeyContext::Normal),
+            Action::ScrollUp,
+            "Ctrl+Up should resolve to ScrollUp"
+        );
+
+        // Test Ctrl+Down -> ScrollDown
+        let ctrl_down = KeyEvent::new(KeyCode::Down, KeyModifiers::CONTROL);
+        assert_eq!(
+            resolver.resolve(&ctrl_down, KeyContext::Normal),
+            Action::ScrollDown,
+            "Ctrl+Down should resolve to ScrollDown"
+        );
+    }
+
+    #[test]
+    fn test_lsp_completion_keybinding() {
+        let config = Config::default();
+        let resolver = KeybindingResolver::new(&config);
+
+        // Test Ctrl+Space -> LspCompletion
+        let ctrl_space = KeyEvent::new(KeyCode::Char(' '), KeyModifiers::CONTROL);
+        assert_eq!(
+            resolver.resolve(&ctrl_space, KeyContext::Normal),
+            Action::LspCompletion,
+            "Ctrl+Space should resolve to LspCompletion"
+        );
+    }
 }

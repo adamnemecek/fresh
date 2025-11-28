@@ -557,4 +557,47 @@ mod tests {
             "Alpha Command should come before Zebra Command"
         );
     }
+
+    #[test]
+    fn test_required_commands_exist() {
+        // This test ensures that all required command palette entries exist.
+        // If this test fails, it means a command was removed or renamed.
+        let registry = CommandRegistry::new();
+
+        let required_commands = [
+            // LSP commands
+            ("Show Completions", Action::LspCompletion),
+            ("Go to Definition", Action::LspGotoDefinition),
+            ("Show Hover Info", Action::LspHover),
+            ("Find References", Action::LspReferences),
+            // Help commands
+            ("Show Manual", Action::ShowHelp),
+            ("Show Keyboard Shortcuts", Action::ShowKeyboardShortcuts),
+            // Scroll commands
+            ("Scroll Up", Action::ScrollUp),
+            ("Scroll Down", Action::ScrollDown),
+            ("Scroll Tabs Left", Action::ScrollTabsLeft),
+            ("Scroll Tabs Right", Action::ScrollTabsRight),
+            // Navigation commands
+            ("Smart Home", Action::SmartHome),
+            // Delete commands
+            ("Delete Word Backward", Action::DeleteWordBackward),
+            ("Delete Word Forward", Action::DeleteWordForward),
+            ("Delete to End of Line", Action::DeleteToLineEnd),
+        ];
+
+        for (name, expected_action) in required_commands {
+            let cmd = registry.find_by_name(name);
+            assert!(
+                cmd.is_some(),
+                "Command '{}' should exist in command palette",
+                name
+            );
+            assert_eq!(
+                cmd.unwrap().action, expected_action,
+                "Command '{}' should have action {:?}",
+                name, expected_action
+            );
+        }
+    }
 }

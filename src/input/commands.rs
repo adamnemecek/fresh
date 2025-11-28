@@ -175,6 +175,24 @@ pub fn get_all_commands() -> Vec<Command> {
             contexts: vec![KeyContext::Normal],
         },
         Command {
+            name: "Delete Word Backward".to_string(),
+            description: "Delete the word before the cursor".to_string(),
+            action: Action::DeleteWordBackward,
+            contexts: vec![KeyContext::Normal],
+        },
+        Command {
+            name: "Delete Word Forward".to_string(),
+            description: "Delete the word after the cursor".to_string(),
+            action: Action::DeleteWordForward,
+            contexts: vec![KeyContext::Normal],
+        },
+        Command {
+            name: "Delete to End of Line".to_string(),
+            description: "Delete from cursor to the end of the line".to_string(),
+            action: Action::DeleteToLineEnd,
+            contexts: vec![KeyContext::Normal],
+        },
+        Command {
             name: "Transpose Characters".to_string(),
             description: "Swap the character before cursor with the one at cursor".to_string(),
             action: Action::TransposeChars,
@@ -312,6 +330,30 @@ pub fn get_all_commands() -> Vec<Command> {
             contexts: vec![KeyContext::Normal],
         },
         Command {
+            name: "Scroll Up".to_string(),
+            description: "Scroll the view up without moving cursor".to_string(),
+            action: Action::ScrollUp,
+            contexts: vec![KeyContext::Normal],
+        },
+        Command {
+            name: "Scroll Down".to_string(),
+            description: "Scroll the view down without moving cursor".to_string(),
+            action: Action::ScrollDown,
+            contexts: vec![KeyContext::Normal],
+        },
+        Command {
+            name: "Scroll Tabs Left".to_string(),
+            description: "Scroll the tab bar to show tabs on the left".to_string(),
+            action: Action::ScrollTabsLeft,
+            contexts: vec![KeyContext::Normal],
+        },
+        Command {
+            name: "Scroll Tabs Right".to_string(),
+            description: "Scroll the tab bar to show tabs on the right".to_string(),
+            action: Action::ScrollTabsRight,
+            contexts: vec![KeyContext::Normal],
+        },
+        Command {
             name: "Toggle Mouse Support".to_string(),
             description: "Enable or disable mouse capture".to_string(),
             action: Action::ToggleMouseCapture,
@@ -442,6 +484,18 @@ pub fn get_all_commands() -> Vec<Command> {
             name: "Go to Line".to_string(),
             description: "Jump to a specific line number".to_string(),
             action: Action::GotoLine,
+            contexts: vec![KeyContext::Normal],
+        },
+        Command {
+            name: "Smart Home".to_string(),
+            description: "Move to first non-whitespace character, or line start if already there".to_string(),
+            action: Action::SmartHome,
+            contexts: vec![KeyContext::Normal],
+        },
+        Command {
+            name: "Show Completions".to_string(),
+            description: "Trigger autocomplete suggestions at cursor".to_string(),
+            action: Action::LspCompletion,
             contexts: vec![KeyContext::Normal],
         },
         Command {
@@ -591,6 +645,19 @@ pub fn get_all_commands() -> Vec<Command> {
             description: "Jump to a bookmark (0-9)".to_string(),
             action: Action::PromptJumpToBookmark,
             contexts: vec![KeyContext::Normal],
+        },
+        // Help
+        Command {
+            name: "Show Manual".to_string(),
+            description: "Open the help manual".to_string(),
+            action: Action::ShowHelp,
+            contexts: vec![],
+        },
+        Command {
+            name: "Show Keyboard Shortcuts".to_string(),
+            description: "Display all keyboard shortcuts".to_string(),
+            action: Action::ShowKeyboardShortcuts,
+            contexts: vec![],
         },
         // Config
         Command {
