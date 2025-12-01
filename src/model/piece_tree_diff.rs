@@ -8,10 +8,10 @@ use crate::model::piece_tree::{LeafData, PieceTreeNode};
 pub struct PieceTreeDiff {
     /// Whether the two trees represent identical piece sequences.
     pub equal: bool,
-    /// Changed byte range in the "after" tree (exclusive end). Empty when `equal` is true.
-    pub byte_range: Range<usize>,
-    /// Changed line range in the "after" tree (exclusive end). `None` when line counts are unknown.
-    pub line_range: Option<Range<usize>>,
+    /// Changed byte ranges in the "after" tree (exclusive end). Empty when `equal` is true.
+    pub byte_ranges: Vec<Range<usize>>,
+    /// Changed line ranges in the "after" tree (exclusive end). `None` when line counts are unknown.
+    pub line_ranges: Option<Vec<Range<usize>>>,
 }
 
 /// Compute a diff between two piece tree roots.
@@ -39,15 +39,14 @@ pub fn diff_piece_trees(
     if leaf_slices_equal(&before_leaves, &after_leaves) {
         return PieceTreeDiff {
             equal: true,
-            byte_range: 0..0,
-            line_range: Some(0..0),
+            byte_ranges: vec![0..0],
+            line_ranges: Some(vec![0..0]),
         };
     }
 
     let before_spans = with_doc_offsets(&before_leaves);
     let after_spans = with_doc_offsets(&after_leaves);
 
-    let _total_before = sum_bytes(&before_leaves);
     let total_after = sum_bytes(&after_leaves);
 
     // Longest common prefix at byte granularity.
@@ -55,18 +54,15 @@ pub fn diff_piece_trees(
     // Longest common suffix without overlapping prefix.
     let suffix = common_suffix_bytes(&before_spans, &after_spans, prefix);
 
-    let changed_start = prefix;
-    let changed_end = total_after.saturating_sub(suffix);
+    let ranges = collect_diff_ranges(&before_spans, &after_spans, prefix, suffix);
 
-    let byte_range = changed_start..changed_end;
-
-    // Line ranges (best effort).
-    let line_range = line_ranges(&after_spans, changed_start, changed_end, line_counter);
+    // Map byte ranges to line ranges (best effort).
+    let line_ranges = line_ranges(&after_spans, &ranges, line_counter);
 
     PieceTreeDiff {
         equal: false,
-        byte_range,
-        line_range,
+        byte_ranges: ranges,
+        line_ranges,
     }
 }
 
@@ -228,6 +224,122 @@ fn common_suffix_bytes(before: &[Span], after: &[Span], prefix_bytes: usize) -> 
     consumed.min(total_after.saturating_sub(prefix_bytes))
 }
 
+fn collect_diff_ranges(
+    before: &[Span],
+    after: &[Span],
+    prefix: usize,
+    suffix: usize,
+) -> Vec<Range<usize>> {
+    let mut ranges = Vec::new();
+    let mut b_idx = 0;
+    let mut a_idx = 0;
+    let mut b_off = 0;
+    let mut a_off = 0;
+    let mut matched_prefix = 0;
+
+    // Skip matching prefix
+    while matched_prefix < prefix && b_idx < before.len() && a_idx < after.len() {
+        let b = &before[b_idx].leaf;
+        let a = &after[a_idx].leaf;
+        let b_rem = b.bytes - b_off;
+        let a_rem = a.bytes - a_off;
+        let take = b_rem.min(a_rem).min(prefix - matched_prefix);
+        matched_prefix += take;
+        b_off += take;
+        a_off += take;
+        if b_off == b.bytes {
+            b_idx += 1;
+            b_off = 0;
+        }
+        if a_off == a.bytes {
+            a_idx += 1;
+            a_off = 0;
+        }
+    }
+
+    let total_after = after.iter().map(|s| s.leaf.bytes).sum::<usize>();
+    let compare_limit = total_after.saturating_sub(suffix);
+
+    let mut current_start: Option<usize> = None;
+    let mut current_end: usize = 0;
+
+    while a_idx < after.len() {
+        let a = &after[a_idx];
+        let pos = a.doc_offset + a_off;
+        if pos >= compare_limit {
+            break;
+        }
+
+        let matches = if b_idx < before.len() {
+            let b = &before[b_idx].leaf;
+            let b_pos = b.offset + b_off;
+            let a_pos = a.leaf.offset + a_off;
+            b.location == a.leaf.location && b_pos == a_pos
+        } else {
+            false
+        };
+
+        if matches {
+            if let Some(start) = current_start.take() {
+                ranges.push(start..current_end);
+            }
+
+            let b = &before[b_idx].leaf;
+            let b_rem = b.bytes - b_off;
+            let a_rem = a.leaf.bytes - a_off;
+            let take = b_rem.min(a_rem).min(compare_limit.saturating_sub(pos));
+
+            b_off += take;
+            a_off += take;
+
+            if b_off == b.bytes {
+                b_idx += 1;
+                b_off = 0;
+            }
+            if a_off == a.leaf.bytes {
+                a_idx += 1;
+                a_off = 0;
+            }
+        } else {
+            if current_start.is_none() {
+                current_start = Some(pos);
+                current_end = pos;
+            }
+            let take = (a.leaf.bytes - a_off).min(compare_limit.saturating_sub(pos));
+            current_end += take;
+            a_off += take;
+            if a_off == a.leaf.bytes {
+                a_idx += 1;
+                a_off = 0;
+            }
+        }
+    }
+
+    if let Some(start) = current_start {
+        ranges.push(start..current_end);
+    }
+
+    // Any trailing unmatched "after" spans up to suffix boundary
+    while a_idx < after.len() {
+        let start = after[a_idx].doc_offset + a_off;
+        if start >= compare_limit {
+            break;
+        }
+        let end = (after[a_idx].doc_offset + after[a_idx].leaf.bytes).min(compare_limit);
+        ranges.push(start..end);
+        a_idx += 1;
+        a_off = 0;
+    }
+
+    if ranges.is_empty() {
+        let total_after = after.iter().map(|s| s.leaf.bytes).sum::<usize>();
+        let compare_limit = total_after.saturating_sub(suffix);
+        ranges.push(prefix..compare_limit);
+    }
+
+    ranges
+}
+
 fn count_lines_in_range(
     spans: &[Span],
     start: usize,
@@ -271,25 +383,28 @@ fn count_lines_in_range(
 
 fn line_ranges(
     after_spans: &[Span],
-    changed_start: usize,
-    changed_end: usize,
+    byte_ranges: &[Range<usize>],
     line_counter: &dyn Fn(&LeafData, usize, usize) -> Option<usize>,
-) -> Option<Range<usize>> {
-    let total_bytes = after_spans.iter().map(|s| s.leaf.bytes).sum::<usize>();
+) -> Option<Vec<Range<usize>>> {
+    let mut accum = Vec::with_capacity(byte_ranges.len());
+    for range in byte_ranges {
+        let lf_before = count_lines_in_range(after_spans, 0, range.start, line_counter)?;
+        let lf_in_range = count_lines_in_range(
+            after_spans,
+            range.start,
+            range.end.saturating_sub(range.start),
+            line_counter,
+        )?;
+        let start_line = lf_before;
+        let end_line = if range.start == range.end {
+            lf_before + 1
+        } else {
+            lf_before + lf_in_range + 1
+        };
+        accum.push(start_line..end_line);
+    }
 
-    let lf_total = count_lines_in_range(after_spans, 0, total_bytes, line_counter)?;
-    let lf_prefix = count_lines_in_range(after_spans, 0, changed_start, line_counter)?;
-    let lf_suffix =
-        count_lines_in_range(after_spans, changed_end, total_bytes.saturating_sub(changed_end), line_counter)?;
-
-    let lf_changed = lf_total.saturating_sub(lf_prefix).saturating_sub(lf_suffix);
-    let changed_lines = if changed_end == changed_start {
-        1
-    } else {
-        lf_changed + 1
-    };
-
-    Some(lf_prefix..lf_prefix + changed_lines)
+    Some(accum)
 }
 
 #[cfg(test)]
@@ -358,8 +473,8 @@ mod tests {
 
         let diff = diff_piece_trees(&before, &after, &count_line_feeds);
         assert!(diff.equal);
-        assert_eq!(diff.byte_range, 0..0);
-        assert_eq!(diff.line_range, Some(0..0));
+        assert_eq!(diff.byte_ranges, vec![0..0]);
+        assert_eq!(diff.line_ranges, Some(vec![0..0]));
     }
 
     #[test]
@@ -369,8 +484,8 @@ mod tests {
 
         let diff = diff_piece_trees(&before, &after, &count_line_feeds);
         assert!(!diff.equal);
-        assert_eq!(diff.byte_range, 0..5);
-        assert_eq!(diff.line_range, Some(0..1)); // same line, different content
+        assert_eq!(diff.byte_ranges, vec![0..5]);
+        assert_eq!(diff.line_ranges, Some(vec![0..1])); // same line, different content
     }
 
     #[test]
@@ -380,8 +495,8 @@ mod tests {
 
         let diff = diff_piece_trees(&before, &after, &count_line_feeds);
         assert!(!diff.equal);
-        assert_eq!(diff.byte_range, 0..6);
-        assert_eq!(diff.line_range, Some(0..2)); // spans two lines after change
+        assert_eq!(diff.byte_ranges, vec![0..6]);
+        assert_eq!(diff.line_ranges, Some(vec![0..2])); // spans two lines after change
     }
 
     #[test]
@@ -394,8 +509,8 @@ mod tests {
 
         let diff = diff_piece_trees(&before, &after, &count_line_feeds);
         assert!(!diff.equal);
-        assert_eq!(diff.byte_range, 6..6); // no bytes remain at the change site
-        assert_eq!(diff.line_range, Some(1..2)); // anchor after deleted span
+        assert_eq!(diff.byte_ranges, vec![6..6]); // no bytes remain at the change site
+        assert_eq!(diff.line_ranges, Some(vec![1..2])); // anchor after deleted span
     }
 
     #[test]
@@ -410,6 +525,6 @@ mod tests {
         let diff = diff_piece_trees(&before, &after, &count_line_feeds);
         assert!(!diff.equal);
         // Only the inserted span should be marked.
-        assert_eq!(diff.byte_range, 50..60);
+        assert_eq!(diff.byte_ranges, vec![50..60]);
     }
 }

@@ -3828,8 +3828,8 @@ impl Editor {
                     *buffer_id,
                     BufferSavedDiff {
                         equal: diff.equal,
-                        byte_range: diff.byte_range.clone(),
-                        line_range: diff.line_range.clone(),
+                        byte_ranges: diff.byte_ranges.clone(),
+                        line_ranges: diff.line_ranges.clone(),
                     },
                 );
 

@@ -111,8 +111,8 @@ Diff vs last save for a buffer
 ```typescript
 interface TsBufferSavedDiff {
   equal: boolean;
-  byte_range: [number, number];
-  line_range?: [number, number] | null;
+  byte_ranges: [number, number][];
+  line_ranges?: [number, number][] | null;
 }
 ```
 

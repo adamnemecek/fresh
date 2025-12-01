@@ -57,8 +57,8 @@ pub struct BufferInfo {
 #[derive(Debug, Clone)]
 pub struct BufferSavedDiff {
     pub equal: bool,
-    pub byte_range: Range<usize>,
-    pub line_range: Option<Range<usize>>,
+    pub byte_ranges: Vec<Range<usize>>,
+    pub line_ranges: Option<Vec<Range<usize>>>,
 }
 
 /// Information about the viewport

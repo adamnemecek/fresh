@@ -1421,8 +1421,8 @@ struct TsBufferInfo {
 #[derive(serde::Serialize)]
 struct TsBufferSavedDiff {
     equal: bool,
-    byte_range: (u32, u32),
-    line_range: Option<(u32, u32)>,
+    byte_ranges: Vec<(u32, u32)>,
+    line_ranges: Option<Vec<(u32, u32)>>,
 }
 
 /// Selection range
@@ -1496,18 +1496,19 @@ fn op_fresh_get_buffer_saved_diff(state: &mut OpState, buffer_id: u32) -> Option
         .get(&BufferId(buffer_id as usize))
         .cloned()?;
 
-    let line_range = runtime_state
-        .line_range
-        .as_ref()
-        .map(|r| (r.start as u32, r.end as u32));
-
     Some(TsBufferSavedDiff {
         equal: runtime_state.equal,
-        byte_range: (
-            runtime_state.byte_range.start as u32,
-            runtime_state.byte_range.end as u32,
-        ),
-        line_range,
+        byte_ranges: runtime_state
+            .byte_ranges
+            .iter()
+            .map(|r| (r.start as u32, r.end as u32))
+            .collect(),
+        line_ranges: runtime_state.line_ranges.as_ref().map(|ranges| {
+            ranges
+                .iter()
+                .map(|r| (r.start as u32, r.end as u32))
+                .collect()
+        }),
     })
 }
 

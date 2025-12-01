@@ -104,14 +104,25 @@ function reapplyIndicatorsFromDiff(bufferId: number): void {
     return;
   }
 
+  const ranges = diff.line_ranges;
   // If line info is unavailable, leave existing indicators (best effort).
-  if (!diff.line_range) return;
+  if (!ranges) return;
 
-  const [start, end] = diff.line_range;
-  // Reset namespace to drop stale indicators outside the changed range.
+  // Reset namespace to drop stale indicators outside the changed ranges.
   editor.clearLineIndicators(bufferId, NAMESPACE);
-  for (let line = start; line < end; line++) {
-    editor.setLineIndicator(bufferId, line, NAMESPACE, SYMBOL, COLOR[0], COLOR[1], COLOR[2], PRIORITY);
+  for (const [start, end] of ranges) {
+    for (let line = start; line < end; line++) {
+      editor.setLineIndicator(
+        bufferId,
+        line,
+        NAMESPACE,
+        SYMBOL,
+        COLOR[0],
+        COLOR[1],
+        COLOR[2],
+        PRIORITY
+      );
+    }
   }
 }
 
