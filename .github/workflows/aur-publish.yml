@@ -23,13 +23,16 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Download tarball and compute checksum
+      - name: Download tarball from artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: artifacts-x86_64-unknown-linux-gnu
+          path: dist-artifacts/
+
+      - name: Compute checksum
         id: checksum
         run: |
-          URL="https://github.com/sinelaw/fresh/releases/download/v${VERSION}/fresh-editor-x86_64-unknown-linux-gnu.tar.xz"
-          echo "Downloading $URL"
-          curl -fsSL "$URL" -o tarball.tar.xz
-          SHA256=$(sha256sum tarball.tar.xz | cut -d' ' -f1)
+          SHA256=$(sha256sum dist-artifacts/fresh-editor-x86_64-unknown-linux-gnu.tar.xz | cut -d' ' -f1)
           echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
           echo "Computed SHA256: $SHA256"
 

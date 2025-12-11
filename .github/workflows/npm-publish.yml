@@ -30,22 +30,6 @@ jobs:
         with:
           name: artifacts-npm-package
           path: dist-artifacts/
-        continue-on-error: true
-
-      - name: Check if package exists
-        id: check
-        run: |
-          if [ -f "dist-artifacts/fresh-editor-npm-package.tar.gz" ]; then
-            echo "found=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "found=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Download npm package from release (fallback)
-        if: steps.check.outputs.found != 'true'
-        run: |
-          mkdir -p dist-artifacts
-          curl -fsSL "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/fresh-editor-npm-package.tar.gz" -o dist-artifacts/fresh-editor-npm-package.tar.gz
 
       - uses: actions/setup-node@v4
         with:
